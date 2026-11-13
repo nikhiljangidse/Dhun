@@ -45,7 +45,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -328,25 +331,32 @@ fun RoundIcon(onClick: () -> Unit, label: String, content: @Composable () -> Uni
 /** "All songs / 248 songs · 173 not heard yet  [▶] [Shuffle]" card. */
 @Composable
 fun SourceCard(title: String, subtitle: String, freshCount: Int, onPlay: () -> Unit, onShuffle: () -> Unit) {
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 20.dp, vertical = 4.dp)
-            .clip(RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(22.dp))
             .background(DhunColors.Surface)
             .padding(16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(title, color = DhunColors.Text, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-            Row {
-                Text("$subtitle · ", color = DhunColors.Muted, fontSize = 13.sp)
-                Text("$freshCount not heard", color = DhunColors.Accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-            }
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(title, color = DhunColors.Text, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
+            Text(
+                buildAnnotatedString {
+                    append("$subtitle · ")
+                    withStyle(SpanStyle(color = DhunColors.Accent, fontWeight = FontWeight.Bold)) {
+                        append("$freshCount not heard yet")
+                    }
+                },
+                color = DhunColors.Muted,
+                fontSize = 13.sp,
+            )
         }
-        PlayOutlineButton(onClick = onPlay)
-        ShuffleButton("Shuffle", onClick = onShuffle)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            ShuffleButton("Smart shuffle", onClick = onShuffle, modifier = Modifier.weight(1f))
+            PlayOutlineButton(onClick = onPlay)
+        }
     }
 }
 

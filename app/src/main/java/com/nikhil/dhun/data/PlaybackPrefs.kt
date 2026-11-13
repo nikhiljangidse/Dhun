@@ -23,6 +23,10 @@ object PlaybackPrefs {
     var sourceSongIds: List<Long> = emptyList()
         private set
 
+    /** Now Playing shows a spinning record instead of the square cover. */
+    var vinylMode by mutableStateOf(false)
+        private set
+
     /** Crossfade between songs, in seconds (0 = off). */
     var crossfadeSec by mutableStateOf(5)
         private set
@@ -34,6 +38,7 @@ object PlaybackPrefs {
         prefs = p
         shuffle = p.getBoolean("shuffle", true)
         crossfadeSec = p.getInt("crossfade_sec", 5).coerceIn(0, 12)
+        vinylMode = p.getBoolean("vinyl", false)
         sort = try {
             SortMode.valueOf(p.getString("sort", null) ?: SortMode.TITLE.name)
         } catch (e: Exception) {
@@ -50,6 +55,12 @@ object PlaybackPrefs {
         init(context)
         shuffle = on
         prefs?.edit()?.putBoolean("shuffle", on)?.apply()
+    }
+
+    fun setVinyl(context: Context, on: Boolean) {
+        init(context)
+        vinylMode = on
+        prefs?.edit()?.putBoolean("vinyl", on)?.apply()
     }
 
     fun setCrossfade(context: Context, seconds: Int) {

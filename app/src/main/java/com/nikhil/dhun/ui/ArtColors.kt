@@ -36,6 +36,17 @@ fun Color.forBackground(): Color {
     return c
 }
 
+/** A bright version of a colour, safe behind black icons. */
+fun Color.forAccent(): Color {
+    var c = this
+    var guard = 0
+    while (c.luminance() < 0.42f && guard < 14) {
+        c = lerp(c, Color.White, 0.18f)
+        guard++
+    }
+    return c
+}
+
 @Composable
 fun rememberArtColors(song: Song?): ArtColors {
     val context = LocalContext.current

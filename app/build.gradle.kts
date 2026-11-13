@@ -14,8 +14,8 @@ android {
         applicationId = "com.nikhil.dhun"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 3
+        versionName = "1.2"
     }
 
     // Fixed key (committed) so every new build installs over the previous one.
@@ -79,4 +79,5 @@ dependencies {
     implementation("androidx.media3:media3-session:1.5.1")
 
     implementation("io.coil-kt:coil-compose:2.7.0")
+    implementation("androidx.palette:palette:1.0.0")
 }

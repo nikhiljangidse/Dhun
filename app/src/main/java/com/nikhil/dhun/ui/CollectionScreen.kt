@@ -36,6 +36,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -71,8 +75,13 @@ fun CollectionScreen(
     val h = heardCount(songs, source.key, heard, cycles)
     val total = songs.size
     var menu by remember { mutableStateOf(false) }
+    val colors = rememberArtColors(songs.firstOrNull())
 
-    Column(Modifier.fillMaxSize()) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(Brush.verticalGradient(0f to colors.dark, 0.45f to DhunColors.Bg)),
+    ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -98,22 +107,31 @@ fun CollectionScreen(
 
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = bottomPadding)) {
             item(key = "header") {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.Bottom,
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    if (isPlaylist) Mosaic(songs, Modifier.size(116.dp), 16.dp)
-                    else SongArt(songs.firstOrNull(), Modifier.size(116.dp), 16.dp, 40.dp)
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 4.dp)) {
-                        Text(source.label, color = DhunColors.Muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp)
-                        Text(source.title, color = DhunColors.Text, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 32.sp, maxLines = 2)
-                        Text(
-                            "${songCount(total)} · ${formatTotal(songs.sumOf { it.durationMs })}",
-                            color = DhunColors.Muted,
-                            fontSize = 13.sp,
-                        )
-                    }
+                    val coverModifier = Modifier.size(210.dp).shadow(28.dp, RoundedCornerShape(22.dp))
+                    if (isPlaylist) Mosaic(songs, coverModifier, 22.dp)
+                    else SongArt(songs.firstOrNull(), coverModifier, 22.dp, 64.dp)
+                    Spacer(Modifier.height(12.dp))
+                    Text(source.label, color = DhunColors.Text.copy(alpha = 0.6f), fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
+                    Text(
+                        source.title,
+                        color = DhunColors.Text,
+                        fontSize = 28.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        lineHeight = 32.sp,
+                        maxLines = 2,
+                        textAlign = TextAlign.Center,
+                    )
+                    Text(
+                        "${songCount(total)} · ${formatTotal(songs.sumOf { it.durationMs })}",
+                        color = DhunColors.Text.copy(alpha = 0.65f),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
                 }
             }
 
@@ -166,6 +184,7 @@ fun CollectionScreen(
                     onClick = { actions.play(source, songs, song, com.nikhil.dhun.data.PlaybackPrefs.shuffle) },
                     showHeardTag = song.id in heardIds && song.id != currentId,
                     onRemove = if (isPlaylist) ({ onRemoveSong(song) }) else null,
+                    modifier = Modifier.animateItem(),
                 )
             }
         }

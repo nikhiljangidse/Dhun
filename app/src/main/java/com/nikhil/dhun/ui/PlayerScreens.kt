@@ -1,9 +1,30 @@
 package com.nikhil.dhun.ui
 
 import android.os.Build
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -11,18 +32,16 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -30,8 +49,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.QueueMusic
@@ -42,30 +61,43 @@ import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.media3.common.Player
@@ -73,60 +105,203 @@ import coil.compose.AsyncImage
 import com.nikhil.dhun.data.Song
 import com.nikhil.dhun.playback.PlayerConnection
 import com.nikhil.dhun.ui.theme.DhunColors
-import com.nikhil.dhun.ui.theme.artColor
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlin.math.abs
+import kotlin.math.roundToInt
+
+// ---------------------------------------------------------------- Mini player
 
 @Composable
 fun MiniPlayer(song: Song, onOpen: () -> Unit, modifier: Modifier = Modifier) {
+    val colors = rememberArtColors(song)
+    val haptic = LocalHapticFeedback.current
+    val density = LocalDensity.current
+    val swipe = with(density) { 70.dp.toPx() }
+    val openLatest by rememberUpdatedState(onOpen)
     var progress by remember { mutableFloatStateOf(0f) }
     LaunchedEffect(song.id) {
         while (true) {
             val d = PlayerConnection.durationMs
             progress = if (d > 0) (PlayerConnection.position.toFloat() / d).coerceIn(0f, 1f) else 0f
-            delay(500)
+            delay(400)
         }
     }
+    val scope = rememberCoroutineScope()
+    val dragX = remember { Animatable(0f) }
+
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(68.dp)
-            .shadow(16.dp, RoundedCornerShape(18.dp))
-            .clip(RoundedCornerShape(18.dp))
-            .background(DhunColors.Surface2)
+            .height(70.dp)
+            .shadow(20.dp, RoundedCornerShape(22.dp))
+            .clip(RoundedCornerShape(22.dp))
+            .background(colors.dark)
+            .pointerInput(Unit) {
+                var dy = 0f
+                detectVerticalDragGestures(
+                    onDragStart = { dy = 0f },
+                    onDragEnd = { if (dy < -swipe / 2) openLatest() },
+                ) { change, amount ->
+                    change.consume()
+                    dy += amount
+                }
+            }
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures(
+                    onDragEnd = {
+                        scope.launch {
+                            val x = dragX.value
+                            if (x < -swipe) {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                PlayerConnection.next()
+                            } else if (x > swipe) {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                PlayerConnection.previous()
+                            }
+                            dragX.animateTo(0f, spring(dampingRatio = 0.7f))
+                        }
+                    },
+                    onDragCancel = { scope.launch { dragX.animateTo(0f) } },
+                ) { change, amount ->
+                    change.consume()
+                    scope.launch { dragX.snapTo(dragX.value + amount * 0.6f) }
+                }
+            }
             .clickable(onClickLabel = "Open player", onClick = onOpen),
     ) {
         Row(
-            modifier = Modifier.fillMaxSize().padding(start = 10.dp, end = 4.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(start = 10.dp, end = 6.dp)
+                .offset { IntOffset(dragX.value.roundToInt(), 0) }
+                .alpha(1f - (abs(dragX.value) / (swipe * 3)).coerceIn(0f, 0.6f)),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            SongArt(song, Modifier.size(48.dp))
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(song.title, color = DhunColors.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(song.artist, color = DhunColors.Muted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Crossfade(targetState = song, label = "miniArt") { s ->
+                SongArt(s, Modifier.size(50.dp), corner = 12.dp)
             }
-            IconButton(onClick = { PlayerConnection.playPause() }) {
-                Icon(
-                    if (PlayerConnection.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                    contentDescription = if (PlayerConnection.isPlaying) "Pause" else "Play",
-                    tint = DhunColors.Text,
-                    modifier = Modifier.size(28.dp),
-                )
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(song.title, color = DhunColors.Text, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(song.artist, color = DhunColors.Text.copy(alpha = 0.7f), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            IconButton(onClick = {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                PlayerConnection.playPause()
+            }) {
+                PlayPauseIcon(PlayerConnection.isPlaying, DhunColors.Text, 30)
             }
             IconButton(onClick = { PlayerConnection.next() }) {
                 Icon(Icons.Rounded.SkipNext, contentDescription = "Next", tint = DhunColors.Text, modifier = Modifier.size(28.dp))
             }
         }
+        // progress line
         Box(
             Modifier
-                .align(Alignment.BottomStart)
-                .fillMaxWidth(progress)
-                .height(3.dp)
-                .background(DhunColors.Accent),
+                .align(Alignment.BottomCenter)
+                .padding(horizontal = 14.dp)
+                .fillMaxWidth()
+                .height(2.5.dp)
+                .clip(RoundedCornerShape(2.dp))
+                .background(Color.White.copy(alpha = 0.18f)),
+        ) {
+            Box(Modifier.fillMaxHeight().fillMaxWidth(progress).background(Color.White))
+        }
+    }
+}
+
+@Composable
+private fun PlayPauseIcon(playing: Boolean, tint: Color, sizeDp: Int) {
+    AnimatedContent(
+        targetState = playing,
+        transitionSpec = { (scaleIn(tween(180)) + fadeIn(tween(180))) togetherWith (scaleOut(tween(120)) + fadeOut(tween(120))) },
+        label = "playPause",
+    ) { isPlaying ->
+        Icon(
+            if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+            contentDescription = if (isPlaying) "Pause" else "Play",
+            tint = tint,
+            modifier = Modifier.size(sizeDp.dp),
         )
     }
 }
 
+// ---------------------------------------------------------------- Seek bar
+
+/** Slim bar that grows when you touch it (tap or drag to seek). */
+@Composable
+fun SeekBar(
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    onValueChangeFinished: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val change by rememberUpdatedState(onValueChange)
+    val finished by rememberUpdatedState(onValueChangeFinished)
+    var active by remember { mutableStateOf(false) }
+    var width by remember { mutableIntStateOf(1) }
+    val barHeight by animateDpAsState(if (active) 10.dp else 5.dp, label = "seekHeight")
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(34.dp)
+            .onSizeChanged { width = it.width.coerceAtLeast(1) }
+            .semantics {
+                contentDescription = "Seek"
+                progressBarRangeInfo = ProgressBarRangeInfo(value, 0f..1f)
+                setProgress { v ->
+                    change(v.coerceIn(0f, 1f))
+                    finished()
+                    true
+                }
+            }
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onPress = { active = true; tryAwaitRelease(); active = false },
+                    onTap = { o ->
+                        change((o.x / width).coerceIn(0f, 1f))
+                        finished()
+                    },
+                )
+            }
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures(
+                    onDragStart = { o ->
+                        active = true
+                        change((o.x / width).coerceIn(0f, 1f))
+                    },
+                    onDragEnd = {
+                        active = false
+                        finished()
+                    },
+                    onDragCancel = {
+                        active = false
+                        finished()
+                    },
+                ) { c, _ ->
+                    c.consume()
+                    change((c.position.x / width).coerceIn(0f, 1f))
+                }
+            },
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(barHeight)
+                .clip(RoundedCornerShape(50))
+                .background(Color.White.copy(alpha = 0.2f)),
+        ) {
+            Box(Modifier.fillMaxHeight().fillMaxWidth(value).clip(RoundedCornerShape(50)).background(Color.White))
+        }
+    }
+}
+
+// ---------------------------------------------------------------- Now playing
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun NowPlayingScreen(
     song: Song,
@@ -140,49 +315,95 @@ fun NowPlayingScreen(
     onOpenQueue: () -> Unit,
     onAddToPlaylist: () -> Unit,
 ) {
-    val tint = lerp(DhunColors.Bg, artColor(song.albumId), 0.45f)
+    val colors = rememberArtColors(song)
+    val haptic = LocalHapticFeedback.current
+    val density = LocalDensity.current
+    val scope = rememberCoroutineScope()
+    val closeLatest by rememberUpdatedState(onClose)
+
     var position by remember { mutableLongStateOf(PlayerConnection.position) }
     LaunchedEffect(Unit) {
         while (true) {
             position = PlayerConnection.position
-            delay(250)
+            delay(200)
         }
     }
     var dragging by remember { mutableStateOf<Float?>(null) }
     val duration = PlayerConnection.durationMs
     val fraction = if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
     val shown = dragging ?: fraction
+    val playing = PlayerConnection.isPlaying
+
+    // Swipe down anywhere to close.
+    val sheetY = remember { Animatable(0f) }
+    val closeAt = with(density) { 140.dp.toPx() }
+    // Swipe the cover left/right to change song.
+    val artX = remember { Animatable(0f) }
+    val skipAt = with(density) { 90.dp.toPx() }
+    val artScale by animateFloatAsState(
+        targetValue = if (playing) 1f else 0.86f,
+        animationSpec = spring(dampingRatio = 0.55f, stiffness = Spring.StiffnessLow),
+        label = "artScale",
+    )
 
     Box(
         Modifier
             .fillMaxSize()
-            .background(tint)
-            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {}),
+            .offset { IntOffset(0, sheetY.value.roundToInt()) }
+            .background(colors.dark)
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {})
+            .pointerInput(Unit) {
+                detectVerticalDragGestures(
+                    onDragEnd = {
+                        scope.launch {
+                            if (sheetY.value > closeAt) closeLatest() else sheetY.animateTo(0f, spring(dampingRatio = 0.8f))
+                        }
+                    },
+                    onDragCancel = { scope.launch { sheetY.animateTo(0f) } },
+                ) { change, dy ->
+                    change.consume()
+                    scope.launch { sheetY.snapTo((sheetY.value + dy).coerceAtLeast(0f)) }
+                }
+            },
     ) {
         if (Build.VERSION.SDK_INT >= 31) {
             AsyncImage(
                 model = song.artUri,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize().blur(90.dp).alpha(0.45f),
+                modifier = Modifier.fillMaxSize().blur(100.dp).alpha(0.4f),
             )
         }
         Box(
             Modifier
                 .fillMaxSize()
-                .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.15f), DhunColors.Bg.copy(alpha = 0.92f)))),
+                .background(
+                    Brush.verticalGradient(
+                        0f to Color.Transparent,
+                        0.55f to colors.dark.copy(alpha = 0.55f),
+                        1f to DhunColors.Bg,
+                    )
+                ),
         )
 
         Column(
-            modifier = Modifier.fillMaxSize().systemBarsPadding().padding(horizontal = 24.dp, vertical = 8.dp),
+            modifier = Modifier.fillMaxSize().systemBarsPadding().padding(horizontal = 24.dp, vertical = 6.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            // ---- top bar
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onClose) {
                     Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = "Close player", tint = DhunColors.Text, modifier = Modifier.size(32.dp))
                 }
                 Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("PLAYING FROM $sourceLabel", color = DhunColors.Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp, maxLines = 1)
+                    Text(
+                        "PLAYING FROM $sourceLabel",
+                        color = DhunColors.Text.copy(alpha = 0.65f),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        letterSpacing = 1.2.sp,
+                        maxLines = 1,
+                    )
                     Text(sourceTitle, color = DhunColors.Text, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 IconButton(onClick = onOpenQueue) {
@@ -190,153 +411,202 @@ fun NowPlayingScreen(
                 }
             }
 
+            // ---- cover
             BoxWithConstraints(
-                modifier = Modifier.weight(1f).fillMaxWidth(),
+                modifier = Modifier.weight(1f).fillMaxWidth().padding(vertical = 12.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 val side = if (maxWidth < maxHeight) maxWidth else maxHeight
-                SongArt(
-                    song,
+                Box(
                     Modifier
                         .size(side)
-                        .shadow(28.dp, RoundedCornerShape(24.dp)),
-                    corner = 24.dp,
-                    iconSize = 96.dp,
-                )
+                        .scale(artScale)
+                        .offset { IntOffset(artX.value.roundToInt(), 0) }
+                        .graphicsLayer {
+                            rotationZ = artX.value / 60f
+                            alpha = 1f - (abs(artX.value) / (skipAt * 4)).coerceIn(0f, 0.5f)
+                        }
+                        .pointerInput(Unit) {
+                            detectHorizontalDragGestures(
+                                onDragEnd = {
+                                    scope.launch {
+                                        val x = artX.value
+                                        if (x < -skipAt) {
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            PlayerConnection.next()
+                                        } else if (x > skipAt) {
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            PlayerConnection.previous()
+                                        }
+                                        artX.animateTo(0f, spring(dampingRatio = 0.7f))
+                                    }
+                                },
+                                onDragCancel = { scope.launch { artX.animateTo(0f) } },
+                            ) { change, dx ->
+                                change.consume()
+                                scope.launch { artX.snapTo(artX.value + dx * 0.7f) }
+                            }
+                        }
+                        .shadow(32.dp, RoundedCornerShape(26.dp)),
+                ) {
+                    Crossfade(targetState = song, animationSpec = tween(350), label = "cover") { s ->
+                        SongArt(s, Modifier.fillMaxSize(), corner = 26.dp, iconSize = 96.dp)
+                    }
+                }
             }
 
-            Spacer(Modifier.height(20.dp))
-
+            // ---- title
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(song.title, color = DhunColors.Text, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text("${song.artist} · ${song.album}", color = DhunColors.Muted, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                AnimatedContent(
+                    targetState = song,
+                    transitionSpec = {
+                        (slideInVertically(tween(260)) { it / 3 } + fadeIn(tween(260))) togetherWith
+                            (slideOutVertically(tween(200)) { -it / 3 } + fadeOut(tween(200)))
+                    },
+                    modifier = Modifier.weight(1f),
+                    label = "title",
+                ) { s ->
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            s.title,
+                            color = DhunColors.Text,
+                            fontSize = 26.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            maxLines = 1,
+                            modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE),
+                        )
+                        Text(
+                            s.artist,
+                            color = DhunColors.Text.copy(alpha = 0.7f),
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
-                IconButton(onClick = onAddToPlaylist) {
-                    Icon(Icons.Rounded.Add, contentDescription = "Add to playlist", tint = DhunColors.Text)
+                CircleIconButton(onClick = onAddToPlaylist, label = "Add to playlist") {
+                    Icon(Icons.Rounded.Add, contentDescription = null, tint = DhunColors.Text)
                 }
             }
 
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(14.dp))
 
-            Slider(
+            // ---- seek
+            SeekBar(
                 value = shown,
                 onValueChange = { dragging = it },
                 onValueChangeFinished = {
                     dragging?.let { PlayerConnection.seekTo((it * duration).toLong()) }
                     dragging = null
                 },
-                colors = SliderDefaults.colors(
-                    thumbColor = Color.White,
-                    activeTrackColor = DhunColors.Accent,
-                    inactiveTrackColor = DhunColors.Track,
-                ),
-                modifier = Modifier.fillMaxWidth(),
             )
             Row(Modifier.fillMaxWidth()) {
-                Text(formatDuration((shown * duration).toLong()), color = DhunColors.Muted, fontSize = 12.sp, modifier = Modifier.weight(1f))
-                Text(formatDuration(duration), color = DhunColors.Muted, fontSize = 12.sp)
+                Text(formatDuration((shown * duration).toLong()), color = DhunColors.Text.copy(alpha = 0.7f), fontSize = 12.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+                Text("-" + formatDuration(((1f - shown) * duration).toLong()), color = DhunColors.Text.copy(alpha = 0.7f), fontSize = 12.sp, fontWeight = FontWeight.Medium)
             }
 
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(10.dp))
 
+            // ---- controls
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    IconButton(onClick = onToggleShuffle) {
-                        Icon(
-                            Icons.Rounded.Shuffle,
-                            contentDescription = if (shuffleOn) "Smart shuffle on" else "Smart shuffle off",
-                            tint = if (shuffleOn) DhunColors.Accent else DhunColors.Muted,
-                        )
-                    }
-                    Box(
-                        Modifier
-                            .size(5.dp)
-                            .clip(CircleShape)
-                            .background(if (shuffleOn) DhunColors.Accent else Color.Transparent),
-                    )
+                ToggleIcon(
+                    active = shuffleOn,
+                    label = if (shuffleOn) "Smart shuffle on" else "Smart shuffle off",
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        onToggleShuffle()
+                    },
+                ) { tint -> Icon(Icons.Rounded.Shuffle, contentDescription = null, tint = tint) }
+
+                IconButton(onClick = { PlayerConnection.previous() }, modifier = Modifier.size(64.dp)) {
+                    Icon(Icons.Rounded.SkipPrevious, contentDescription = "Previous", tint = DhunColors.Text, modifier = Modifier.size(44.dp))
                 }
-                IconButton(onClick = { PlayerConnection.previous() }, modifier = Modifier.size(60.dp)) {
-                    Icon(Icons.Rounded.SkipPrevious, contentDescription = "Previous", tint = DhunColors.Text, modifier = Modifier.size(40.dp))
-                }
+
+                val press = remember { MutableInteractionSource() }
+                val pressed by press.collectIsPressedAsState()
+                val btnScale by animateFloatAsState(if (pressed) 0.9f else 1f, spring(dampingRatio = 0.5f), label = "btn")
                 Box(
                     modifier = Modifier
-                        .size(78.dp)
+                        .size(80.dp)
+                        .scale(btnScale)
+                        .shadow(18.dp, CircleShape)
                         .clip(CircleShape)
-                        .background(DhunColors.Accent)
-                        .clickable(role = Role.Button, onClick = { PlayerConnection.playPause() }),
+                        .background(Color.White)
+                        .clickable(interactionSource = press, indication = null, role = Role.Button) {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            PlayerConnection.playPause()
+                        },
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(
-                        if (PlayerConnection.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                        contentDescription = if (PlayerConnection.isPlaying) "Pause" else "Play",
-                        tint = DhunColors.OnAccent,
-                        modifier = Modifier.size(40.dp),
-                    )
+                    PlayPauseIcon(playing, Color.Black, 42)
                 }
-                IconButton(onClick = { PlayerConnection.next() }, modifier = Modifier.size(60.dp)) {
-                    Icon(Icons.Rounded.SkipNext, contentDescription = "Next", tint = DhunColors.Text, modifier = Modifier.size(40.dp))
+
+                IconButton(onClick = { PlayerConnection.next() }, modifier = Modifier.size(64.dp)) {
+                    Icon(Icons.Rounded.SkipNext, contentDescription = "Next", tint = DhunColors.Text, modifier = Modifier.size(44.dp))
                 }
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    val mode = PlayerConnection.repeatMode
-                    IconButton(onClick = { PlayerConnection.cycleRepeat() }) {
-                        Icon(
-                            if (mode == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
-                            contentDescription = when (mode) {
-                                Player.REPEAT_MODE_ONE -> "Repeat one"
-                                Player.REPEAT_MODE_ALL -> "Repeat all"
-                                else -> "Repeat off"
-                            },
-                            tint = if (mode != Player.REPEAT_MODE_OFF) DhunColors.Accent else DhunColors.Muted,
-                        )
-                    }
-                    Box(
-                        Modifier
-                            .size(5.dp)
-                            .clip(CircleShape)
-                            .background(if (mode != Player.REPEAT_MODE_OFF) DhunColors.Accent else Color.Transparent),
-                    )
+
+                val mode = PlayerConnection.repeatMode
+                ToggleIcon(
+                    active = mode != Player.REPEAT_MODE_OFF,
+                    label = when (mode) {
+                        Player.REPEAT_MODE_ONE -> "Repeat one"
+                        Player.REPEAT_MODE_ALL -> "Repeat all"
+                        else -> "Repeat off"
+                    },
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        PlayerConnection.cycleRepeat()
+                    },
+                ) { tint ->
+                    Icon(if (mode == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat, contentDescription = null, tint = tint)
                 }
             }
 
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(16.dp))
 
-            Box(Modifier.height(32.dp), contentAlignment = Alignment.Center) {
-                if (shuffleOn && shuffleInfo != null) {
+            // ---- smart shuffle chip
+            Box(Modifier.height(30.dp), contentAlignment = Alignment.Center) {
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = shuffleOn && shuffleInfo != null,
+                    enter = fadeIn() + scaleIn(initialScale = 0.9f),
+                    exit = fadeOut() + scaleOut(targetScale = 0.9f),
+                ) {
                     Row(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(Color.White.copy(alpha = 0.08f))
-                            .padding(horizontal = 14.dp, vertical = 7.dp),
+                            .clip(RoundedCornerShape(15.dp))
+                            .background(Color.White.copy(alpha = 0.1f))
+                            .padding(horizontal = 14.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Box(Modifier.size(7.dp).clip(CircleShape).background(DhunColors.Accent))
-                        Text(shuffleInfo, color = DhunColors.Text, fontSize = 13.sp)
+                        Text(shuffleInfo ?: "", color = DhunColors.Text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                     }
                 }
             }
 
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(12.dp))
 
+            // ---- up next
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(56.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(Color.White.copy(alpha = 0.07f))
+                    .height(58.dp)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(Color.White.copy(alpha = 0.08f))
                     .clickable(onClickLabel = "Open queue", onClick = onOpenQueue)
-                    .padding(horizontal = 16.dp),
+                    .padding(start = 8.dp, end = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Icon(Icons.Rounded.QueueMusic, contentDescription = null, tint = DhunColors.Text, modifier = Modifier.size(20.dp))
+                SongArt(upNext, Modifier.size(42.dp), corner = 10.dp, iconSize = 16.dp)
                 Column(Modifier.weight(1f)) {
-                    Text("UP NEXT", color = DhunColors.Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp)
+                    Text("UP NEXT", color = DhunColors.Text.copy(alpha = 0.6f), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
                     Text(
                         upNext?.let { "${it.title} · ${it.artist}" } ?: "Nothing after this song",
                         color = DhunColors.Text,
@@ -346,22 +616,54 @@ fun NowPlayingScreen(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                Icon(Icons.Rounded.ExpandLess, contentDescription = null, tint = DhunColors.Muted)
+                Icon(Icons.Rounded.KeyboardArrowUp, contentDescription = null, tint = DhunColors.Text.copy(alpha = 0.6f))
             }
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(6.dp))
         }
     }
 }
 
 @Composable
+private fun ToggleIcon(active: Boolean, label: String, onClick: () -> Unit, icon: @Composable (Color) -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        IconButton(onClick = onClick, modifier = Modifier.semantics { contentDescription = label }) {
+            icon(if (active) DhunColors.Accent else DhunColors.Text.copy(alpha = 0.7f))
+        }
+        Box(
+            Modifier
+                .size(5.dp)
+                .clip(CircleShape)
+                .background(if (active) DhunColors.Accent else Color.Transparent),
+        )
+    }
+}
+
+@Composable
+private fun CircleIconButton(onClick: () -> Unit, label: String, content: @Composable () -> Unit) {
+    Box(
+        modifier = Modifier
+            .size(44.dp)
+            .clip(CircleShape)
+            .background(Color.White.copy(alpha = 0.1f))
+            .clickable(role = Role.Button, onClickLabel = label, onClick = onClick)
+            .semantics { contentDescription = label },
+        contentAlignment = Alignment.Center,
+    ) { content() }
+}
+
+// ---------------------------------------------------------------- Queue
+
+@Composable
 fun QueueScreen(byId: Map<Long, Song>, onClose: () -> Unit) {
     val ids = PlayerConnection.queueIds
     val current = PlayerConnection.currentIndex
+    val currentSong = ids.getOrNull(current)?.let { byId[it] }
+    val colors = rememberArtColors(currentSong)
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = current.coerceAtLeast(0))
     Column(
         Modifier
             .fillMaxSize()
-            .background(DhunColors.Bg)
+            .background(Brush.verticalGradient(0f to colors.dark, 0.35f to DhunColors.Bg))
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {})
             .statusBarsPadding(),
     ) {
@@ -372,13 +674,13 @@ fun QueueScreen(byId: Map<Long, Song>, onClose: () -> Unit) {
             IconButton(onClick = onClose) {
                 Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = "Close queue", tint = DhunColors.Text, modifier = Modifier.size(30.dp))
             }
-            Text("Queue", color = DhunColors.Text, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-            Text("${ids.size} songs", color = DhunColors.Muted, fontSize = 13.sp, modifier = Modifier.padding(end = 14.dp))
+            Text("Queue", color = DhunColors.Text, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f))
+            Text(songCount(ids.size), color = DhunColors.Text.copy(alpha = 0.7f), fontSize = 13.sp, modifier = Modifier.padding(end = 14.dp))
         }
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 24.dp),
+            contentPadding = PaddingValues(top = 4.dp, bottom = 24.dp),
         ) {
             itemsIndexed(ids) { index, id ->
                 val song = byId[id] ?: return@itemsIndexed
@@ -386,14 +688,24 @@ fun QueueScreen(byId: Map<Long, Song>, onClose: () -> Unit) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(if (isCurrent) DhunColors.Surface else Color.Transparent)
+                        .padding(horizontal = 12.dp, vertical = 2.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(if (isCurrent) Color.White.copy(alpha = 0.08f) else Color.Transparent)
                         .clickable { PlayerConnection.seekToIndex(index) }
-                        .padding(horizontal = 20.dp)
+                        .padding(horizontal = 8.dp)
                         .height(62.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
-                    SongArt(song, Modifier.size(44.dp))
+                    Box(Modifier.size(46.dp)) {
+                        SongArt(song, Modifier.matchParentSize(), corner = 10.dp)
+                        if (isCurrent) {
+                            Box(
+                                Modifier.matchParentSize().clip(RoundedCornerShape(10.dp)).background(Color.Black.copy(alpha = 0.5f)),
+                                contentAlignment = Alignment.Center,
+                            ) { EqualizerBars(playing = PlayerConnection.isPlaying, color = DhunColors.Accent) }
+                        }
+                    }
                     Column(Modifier.weight(1f)) {
                         Text(
                             song.title,
@@ -409,9 +721,7 @@ fun QueueScreen(byId: Map<Long, Song>, onClose: () -> Unit) {
                         )
                         Text(song.artist, color = DhunColors.Muted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
-                    if (isCurrent) {
-                        Text("Playing", color = DhunColors.Accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                    }
+                    Text(formatDuration(song.durationMs), color = DhunColors.Muted, fontSize = 12.sp)
                 }
             }
         }

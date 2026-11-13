@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -32,6 +33,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -148,17 +150,31 @@ fun SongRow(
     onClick: () -> Unit,
     showHeardTag: Boolean = false,
     onRemove: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
 ) {
     var menu by remember { mutableStateOf(false) }
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
             .padding(start = 20.dp, end = 6.dp)
             .height(66.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        SongArt(song, Modifier.size(48.dp))
+        Box(Modifier.size(50.dp)) {
+            SongArt(song, Modifier.matchParentSize(), corner = 12.dp)
+            if (isCurrent) {
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color.Black.copy(alpha = 0.5f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    EqualizerBars(playing = com.nikhil.dhun.playback.PlayerConnection.isPlaying, color = DhunColors.Accent)
+                }
+            }
+        }
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text(
@@ -255,5 +271,39 @@ fun SectionEmpty(title: String, body: String, modifier: Modifier = Modifier) {
         Icon(Icons.Rounded.MusicNote, contentDescription = null, tint = DhunColors.Muted, modifier = Modifier.size(40.dp))
         Text(title, color = DhunColors.Text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
         Text(body, color = DhunColors.Muted, fontSize = 14.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+    }
+}
+
+/** Three bouncing bars shown on the song that is playing. */
+@Composable
+fun EqualizerBars(playing: Boolean, color: Color, modifier: Modifier = Modifier) {
+    val transition = androidx.compose.animation.core.rememberInfiniteTransition(label = "eq")
+    val bars = listOf(0, 160, 320).map { offset ->
+        transition.animateFloat(
+            initialValue = 0.25f,
+            targetValue = 1f,
+            animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+                animation = androidx.compose.animation.core.tween(420, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                repeatMode = androidx.compose.animation.core.RepeatMode.Reverse,
+                initialStartOffset = androidx.compose.animation.core.StartOffset(offset),
+            ),
+            label = "bar$offset",
+        )
+    }
+    Row(
+        modifier = modifier.height(18.dp),
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+        verticalAlignment = Alignment.Bottom,
+    ) {
+        bars.forEach { anim ->
+            val h = if (playing) anim.value else 0.3f
+            Box(
+                Modifier
+                    .width(3.dp)
+                    .fillMaxHeight(h)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(color),
+            )
+        }
     }
 }

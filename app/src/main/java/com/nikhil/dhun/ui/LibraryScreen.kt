@@ -1,5 +1,7 @@
 package com.nikhil.dhun.ui
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -40,6 +42,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -57,6 +60,7 @@ import com.nikhil.dhun.data.artistsOf
 import com.nikhil.dhun.data.foldersOf
 import com.nikhil.dhun.data.heardCount
 import com.nikhil.dhun.data.sortSongs
+import com.nikhil.dhun.playback.PlayerConnection
 import com.nikhil.dhun.ui.theme.DhunColors
 
 enum class LibTab(val label: String) {
@@ -89,14 +93,20 @@ fun LibraryScreen(
     val albums = remember(songs) { albumsOf(songs) }
     val artists = remember(songs) { artistsOf(songs) }
     val folders = remember(songs) { foldersOf(songs) }
+    val recent = remember(heard, byId) {
+        heard.entries.sortedByDescending { it.value }.asSequence().mapNotNull { byId[it.key] }.take(12).toList()
+    }
 
     Column(Modifier.fillMaxSize()) {
         // Title bar
         Row(
-            modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 16.dp, bottom = 12.dp),
+            modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 14.dp, bottom = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("Library", color = DhunColors.Text, fontSize = 30.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f))
+            Column(Modifier.weight(1f)) {
+                Text(greeting(), color = DhunColors.Muted, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                Text("Library", color = DhunColors.Text, fontSize = 32.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.5).sp)
+            }
             RoundIcon(onClick = onSearch, label = "Search") { Icon(Icons.Rounded.Search, "Search", tint = DhunColors.Text) }
             Spacer(Modifier.width(8.dp))
             RoundIcon(onClick = onSettings, label = "Settings") { Icon(Icons.Rounded.Tune, "Settings", tint = DhunColors.Text) }
@@ -110,20 +120,22 @@ fun LibraryScreen(
         ) {
             items(LibTab.entries.toList()) { t ->
                 val on = t == tab
+                val bg by animateColorAsState(if (on) DhunColors.Accent else DhunColors.Surface, tween(220), label = "tabBg")
+                val fg by animateColorAsState(if (on) DhunColors.OnAccent else DhunColors.Text, tween(220), label = "tabFg")
                 Box(
                     modifier = Modifier
                         .height(40.dp)
                         .clip(RoundedCornerShape(20.dp))
-                        .background(if (on) DhunColors.Accent else DhunColors.Surface)
+                        .background(bg)
                         .clickable(role = Role.Tab) { onTab(t) }
                         .padding(horizontal = 16.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
                         t.label,
-                        color = if (on) DhunColors.OnAccent else DhunColors.Text,
+                        color = fg,
                         fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
+                        fontWeight = FontWeight.Bold,
                     )
                 }
             }
@@ -140,6 +152,51 @@ fun LibraryScreen(
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = bottomPadding)) {
             when (tab) {
                 LibTab.Songs -> {
+                    if (recent.isNotEmpty()) {
+                        item(key = "recent") {
+                            Column(Modifier.padding(bottom = 14.dp)) {
+                                Text(
+                                    "Recently played",
+                                    color = DhunColors.Text,
+                                    fontSize = 19.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    modifier = Modifier.padding(start = 20.dp, bottom = 12.dp),
+                                )
+                                LazyRow(
+                                    contentPadding = PaddingValues(horizontal = 20.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                ) {
+                                    items(recent, key = { "r_${it.id}" }) { s ->
+                                        Column(
+                                            modifier = Modifier
+                                                .width(136.dp)
+                                                .clip(RoundedCornerShape(16.dp))
+                                                .clickable { actions.play(Source.all(), sorted, s, PlaybackPrefs.shuffle) },
+                                            verticalArrangement = Arrangement.spacedBy(3.dp),
+                                        ) {
+                                            Box(Modifier.size(136.dp)) {
+                                                SongArt(s, Modifier.matchParentSize(), corner = 16.dp, iconSize = 36.dp)
+                                                if (s.id == currentId) {
+                                                    Box(
+                                                        Modifier
+                                                            .align(Alignment.BottomEnd)
+                                                            .padding(8.dp)
+                                                            .size(30.dp)
+                                                            .clip(CircleShape)
+                                                            .background(Color.Black.copy(alpha = 0.6f)),
+                                                        contentAlignment = Alignment.Center,
+                                                    ) { EqualizerBars(playing = PlayerConnection.isPlaying, color = DhunColors.Accent, modifier = Modifier.height(14.dp)) }
+                                                }
+                                            }
+                                            Spacer(Modifier.height(5.dp))
+                                            Text(s.title, color = DhunColors.Text, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            Text(s.artist, color = DhunColors.Muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                     item(key = "all_card") {
                         val all = Source.all()
                         val h = heardCount(songs, all.key, heard, cycles)
@@ -160,6 +217,7 @@ fun LibraryScreen(
                             isCurrent = song.id == currentId,
                             actions = actions,
                             onClick = { actions.play(Source.all(), sorted, song, PlaybackPrefs.shuffle) },
+                            modifier = Modifier.animateItem(),
                         )
                     }
                 }
@@ -328,5 +386,15 @@ fun ListRow(
             Text(title, color = DhunColors.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(subtitle, color = DhunColors.Muted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
+    }
+}
+
+private fun greeting(): String {
+    val h = java.time.LocalTime.now().hour
+    return when (h) {
+        in 5..11 -> "Good morning"
+        in 12..16 -> "Good afternoon"
+        in 17..21 -> "Good evening"
+        else -> "Late night vibes"
     }
 }

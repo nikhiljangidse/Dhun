@@ -6,6 +6,8 @@ import android.net.Uri
 import android.os.PowerManager
 import android.provider.Settings
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -25,6 +27,8 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -39,6 +43,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.nikhil.dhun.data.PlaybackPrefs
 import com.nikhil.dhun.data.Playlist
 import com.nikhil.dhun.data.Song
 import com.nikhil.dhun.ui.theme.DhunColors
@@ -153,7 +158,10 @@ fun SettingsDialog(onDismiss: () -> Unit, onRescan: () -> Unit, onResetHistory: 
         onDismissRequest = onDismiss,
         title = { Text("Settings") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(18.dp),
+            ) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Background playback", color = DhunColors.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                     if (unrestricted) {
@@ -188,6 +196,8 @@ fun SettingsDialog(onDismiss: () -> Unit, onRescan: () -> Unit, onResetHistory: 
                     }
                 }
                 HorizontalDivider(color = DhunColors.Line)
+                CrossfadeSetting()
+                HorizontalDivider(color = DhunColors.Line)
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text("Library", color = DhunColors.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                     TextButton(onClick = { onRescan(); onDismiss() }, modifier = Modifier.padding(start = 0.dp)) {
@@ -218,6 +228,43 @@ fun SettingsDialog(onDismiss: () -> Unit, onRescan: () -> Unit, onResetHistory: 
                 onResetHistory()
                 onDismiss()
             },
+        )
+    }
+}
+
+@Composable
+private fun CrossfadeSetting() {
+    val context = LocalContext.current
+    var value by remember { mutableStateOf(PlaybackPrefs.crossfadeSec.toFloat()) }
+    val sec = value.toInt()
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Crossfade", color = DhunColors.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            Text(
+                if (sec == 0) "Off" else "$sec s",
+                color = if (sec == 0) DhunColors.Muted else DhunColors.Accent,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+        Text(
+            "Fades the ending of a song into the start of the next one.",
+            color = DhunColors.Muted,
+            fontSize = 13.sp,
+        )
+        Slider(
+            value = value,
+            onValueChange = { value = it },
+            onValueChangeFinished = { PlaybackPrefs.setCrossfade(context, value.toInt()) },
+            valueRange = 0f..12f,
+            steps = 11,
+            colors = SliderDefaults.colors(
+                thumbColor = DhunColors.Accent,
+                activeTrackColor = DhunColors.Accent,
+                inactiveTrackColor = DhunColors.Track,
+                activeTickColor = DhunColors.OnAccent,
+                inactiveTickColor = DhunColors.Muted,
+            ),
         )
     }
 }

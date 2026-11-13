@@ -23,12 +23,17 @@ object PlaybackPrefs {
     var sourceSongIds: List<Long> = emptyList()
         private set
 
+    /** Crossfade between songs, in seconds (0 = off). */
+    var crossfadeSec by mutableStateOf(5)
+        private set
+
     @Synchronized
     fun init(context: Context) {
         if (prefs != null) return
         val p = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         prefs = p
         shuffle = p.getBoolean("shuffle", true)
+        crossfadeSec = p.getInt("crossfade_sec", 5).coerceIn(0, 12)
         sort = try {
             SortMode.valueOf(p.getString("sort", null) ?: SortMode.TITLE.name)
         } catch (e: Exception) {
@@ -45,6 +50,12 @@ object PlaybackPrefs {
         init(context)
         shuffle = on
         prefs?.edit()?.putBoolean("shuffle", on)?.apply()
+    }
+
+    fun setCrossfade(context: Context, seconds: Int) {
+        init(context)
+        crossfadeSec = seconds.coerceIn(0, 12)
+        prefs?.edit()?.putInt("crossfade_sec", crossfadeSec)?.apply()
     }
 
     fun setSort(context: Context, mode: SortMode) {

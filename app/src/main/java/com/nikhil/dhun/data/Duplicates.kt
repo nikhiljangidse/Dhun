@@ -1,7 +1,7 @@
 package com.nikhil.dhun.data
 
 /** One song that exists more than once. [copies] is best-quality first; copies[0] is the one to keep. */
-data class DuplicateGroup(val copies: List<Song>) {
+data class DuplicateGroup(val copies: List<Song>, val matchPercent: Int? = null) {
     val keeper: Song get() = copies.first()
 }
 
@@ -30,7 +30,7 @@ object Duplicates {
         return s.trim()
     }
 
-    private fun bestFirst(list: List<Song>): List<Song> =
+    fun bestFirst(list: List<Song>): List<Song> =
         list.sortedWith(
             compareByDescending<Song> { it.bitrate }
                 .thenByDescending { it.sizeBytes }

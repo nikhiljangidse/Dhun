@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.DeleteSweep
+import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
@@ -36,9 +37,13 @@ import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -53,7 +58,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.view.WindowManager
 import androidx.core.content.ContextCompat
+import com.nikhil.dhun.data.sound.ScanState
+import com.nikhil.dhun.data.sound.SoundScanner
 import com.nikhil.dhun.data.DuplicateGroup
 import com.nikhil.dhun.data.Duplicates
 import com.nikhil.dhun.data.HistoryStore
@@ -74,7 +82,30 @@ private data class DeletePlan(val ids: List<Long>, val keptFor: Map<Long, Long>,
 fun DuplicatesScreen(songs: List<Song>, onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val groups = remember(songs) { Duplicates.find(songs) }
+    var bySound by rememberSaveable { mutableStateOf(false) }
+    val scan by SoundScanner.state.collectAsState()
+    val nameGroups = remember(songs) { Duplicates.find(songs) }
+    val soundGroups = remember(scan, songs) {
+        val done = scan as? ScanState.Done
+        if (done == null) {
+            emptyList()
+        } else {
+            val present = songs.associateBy { it.id }
+            done.groups.mapNotNull { g ->
+                val still = g.copies.mapNotNull { present[it.id] }
+                if (still.size > 1) g.copy(copies = Duplicates.bestFirst(still)) else null
+            }
+        }
+    }
+    val groups = if (bySound) soundGroups else nameGroups
+    val scanning = scan is ScanState.Listening || scan is ScanState.Matching
+
+    // Keep the screen awake while listening to songs.
+    val activity = context as? Activity
+    DisposableEffect(scanning) {
+        if (scanning) activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        onDispose { activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
+    }
     // Ticked = will be deleted. Default: every copy except the best one.
     val selected = remember(groups) {
         mutableStateListOf<Long>().apply { groups.forEach { g -> g.copies.drop(1).forEach { add(it.id) } } }
@@ -191,8 +222,28 @@ fun DuplicatesScreen(songs: List<Song>, onBack: () -> Unit) {
             Text("Duplicate songs", color = DhunColors.Text, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
         }
 
+        Row(
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            ModeChip("By name", !bySound) { bySound = false }
+            ModeChip("By sound", bySound) { bySound = true }
+        }
+
+        if (bySound && scan !is ScanState.Done) {
+            SoundScanCard(scan, songs.size, onStart = { SoundScanner.start(context, songs) }, onCancel = { SoundScanner.cancel() })
+            return@Column
+        }
+
         if (groups.isEmpty()) {
-            SectionEmpty("No duplicates found", "Every song on your phone is there only once.")
+            if (bySound) {
+                SectionEmpty("No songs sound the same", "Every song on your phone sounds different from the others.")
+                TextButton(onClick = { SoundScanner.start(context, songs) }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+                    Text("Scan again", color = DhunColors.Accent, fontWeight = FontWeight.SemiBold)
+                }
+            } else {
+                SectionEmpty("No duplicates by name", "Try \u201CBy sound\u201D to find the same song saved under different names.")
+            }
             return@Column
         }
 
@@ -220,7 +271,8 @@ fun DuplicatesScreen(songs: List<Song>, onBack: () -> Unit) {
                         fontWeight = FontWeight.Bold,
                     )
                     Text(
-                        "Ticked copies will be deleted from your phone. The best-quality copy of each song is kept, " +
+                        (if (bySound) "Matched by how they sound — name, quality and format don't matter. " else "") +
+                            "Ticked copies will be deleted from your phone. The best-quality copy of each song is kept, " +
                             "and your playlists and shuffle history move to it.",
                         color = DhunColors.Muted,
                         fontSize = 13.sp,
@@ -233,6 +285,11 @@ fun DuplicatesScreen(songs: List<Song>, onBack: () -> Unit) {
                         }) { Text("Select all extras", color = DhunColors.Accent, fontWeight = FontWeight.SemiBold) }
                         TextButton(onClick = { selected.clear() }) {
                             Text("Clear", color = DhunColors.Muted)
+                        }
+                        if (bySound) {
+                            TextButton(onClick = { SoundScanner.start(context, songs) }) {
+                                Text("Scan again", color = DhunColors.Muted)
+                            }
                         }
                     }
                 }
@@ -328,7 +385,12 @@ private fun GroupCard(group: DuplicateGroup, isSelected: (Long) -> Boolean, onTo
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            Text("${group.copies.size} copies", color = DhunColors.Accent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Column(horizontalAlignment = Alignment.End) {
+                Text("${group.copies.size} copies", color = DhunColors.Accent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                group.matchPercent?.let {
+                    Text("$it% same", color = DhunColors.Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
         }
         Spacer(Modifier.height(6.dp))
         group.copies.forEachIndexed { index, s ->
@@ -388,6 +450,84 @@ private fun GroupCard(group: DuplicateGroup, isSelected: (Long) -> Boolean, onTo
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
             )
+        }
+    }
+}
+
+@Composable
+private fun ModeChip(label: String, on: Boolean, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .height(38.dp)
+            .clip(RoundedCornerShape(19.dp))
+            .background(if (on) DhunColors.Accent else DhunColors.Surface)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, color = if (on) DhunColors.OnAccent else DhunColors.Text, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+private fun SoundScanCard(scan: ScanState, songTotal: Int, onStart: () -> Unit, onCancel: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 12.dp)
+            .clip(RoundedCornerShape(22.dp))
+            .background(DhunColors.Surface)
+            .padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Icon(Icons.Rounded.GraphicEq, contentDescription = null, tint = DhunColors.Accent, modifier = Modifier.size(34.dp))
+        when (scan) {
+            is ScanState.Listening -> {
+                Text("Listening to your songs…", color = DhunColors.Text, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
+                LinearProgressIndicator(
+                    progress = { if (scan.total > 0) scan.done.toFloat() / scan.total else 0f },
+                    modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
+                    color = DhunColors.Accent,
+                    trackColor = DhunColors.Chip,
+                )
+                Text("${scan.done} of ${scan.total} songs", color = DhunColors.Muted, fontSize = 13.sp)
+                Text(
+                    "You can leave this screen — the scan keeps going. Keep the app open.",
+                    color = DhunColors.Muted,
+                    fontSize = 12.sp,
+                )
+                TextButton(onClick = onCancel) { Text("Stop", color = DhunColors.Muted) }
+            }
+            is ScanState.Matching -> {
+                Text("Comparing songs…", color = DhunColors.Text, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
+                LinearProgressIndicator(
+                    progress = { scan.progress },
+                    modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
+                    color = DhunColors.Accent,
+                    trackColor = DhunColors.Chip,
+                )
+            }
+            else -> {
+                Text("Find songs that sound the same", color = DhunColors.Text, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
+                Text(
+                    "Dhun listens to about a minute of every song and makes a sound fingerprint, like Shazam. " +
+                        "Songs downloaded from different sites, with different names, quality or format are matched " +
+                        "if they are the same recording.",
+                    color = DhunColors.Muted,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp,
+                )
+                Text(
+                    "First scan of $songTotal songs takes a few minutes. Later scans only check new songs.",
+                    color = DhunColors.Muted,
+                    fontSize = 12.sp,
+                )
+                Button(
+                    onClick = onStart,
+                    shape = RoundedCornerShape(24.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = DhunColors.Accent, contentColor = DhunColors.OnAccent),
+                ) { Text("Start sound scan", fontWeight = FontWeight.Bold) }
+            }
         }
     }
 }

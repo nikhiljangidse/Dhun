@@ -9,6 +9,7 @@ Phone ke apne gaane chalane ke liye. Isme na ads hain, na account, aur internet 
 - App recents se swipe karne pe bhi music chalta rehta hai.
 - App dobara kholne pe pichla gaana usi jagah se continue hota hai.
 - Library mein Songs, Playlists, Albums, Artists aur Folders, saath mein search.
+- **Duplicate finder "By sound":** Shazam jaisa audio fingerprint (~1 min per song, 300–2000 Hz band patterns). Alag website, naam, bitrate ya format ke same gaane pakad leta hai. Fingerprints cache hote hain.
 - **Duplicate finder:** Settings → "Find & delete duplicate songs". Har gaane ki best-quality copy rakhta hai, baaki ek saath delete karta hai; playlists aur history bachi hui copy pe shift ho jaati hai.
 - Playlists bana sakte ho, rename/delete kar sakte ho, gaane add/remove kar sakte ho. "Play next" aur "Add to queue" bhi hai.
 - Dark UI, album art, aur Now Playing screen pe blurred background.

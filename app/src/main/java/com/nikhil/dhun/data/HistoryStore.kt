@@ -57,6 +57,20 @@ object HistoryStore {
         save()
     }
 
+    /** Move "heard" history from deleted duplicates to the copy that was kept. */
+    @Synchronized
+    fun transfer(context: Context, keptFor: Map<Long, Long>, removed: Set<Long>) {
+        init(context)
+        val h = _heard.value.toMutableMap()
+        keptFor.forEach { (old, new) ->
+            val t = h[old]
+            if (t != null) h[new] = maxOf(h[new] ?: 0L, t)
+        }
+        removed.forEach { h.remove(it) }
+        _heard.value = h
+        save()
+    }
+
     private fun save() {
         val h = JSONObject()
         _heard.value.forEach { (k, v) -> h.put(k.toString(), v) }

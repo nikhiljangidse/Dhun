@@ -149,7 +149,12 @@ private fun ignoringBattery(context: Context): Boolean {
 }
 
 @Composable
-fun SettingsDialog(onDismiss: () -> Unit, onRescan: () -> Unit, onResetHistory: () -> Unit) {
+fun SettingsDialog(
+    onDismiss: () -> Unit,
+    onRescan: () -> Unit,
+    onFindDuplicates: () -> Unit,
+    onResetHistory: () -> Unit,
+) {
     val context = LocalContext.current
     val unrestricted = remember { ignoringBattery(context) }
     var confirmReset by remember { mutableStateOf(false) }
@@ -200,6 +205,9 @@ fun SettingsDialog(onDismiss: () -> Unit, onRescan: () -> Unit, onResetHistory: 
                 HorizontalDivider(color = DhunColors.Line)
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text("Library", color = DhunColors.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                    TextButton(onClick = { onFindDuplicates(); onDismiss() }) {
+                        Text("Find & delete duplicate songs", color = DhunColors.Accent)
+                    }
                     TextButton(onClick = { onRescan(); onDismiss() }, modifier = Modifier.padding(start = 0.dp)) {
                         Text("Rescan music on phone", color = DhunColors.Accent)
                     }

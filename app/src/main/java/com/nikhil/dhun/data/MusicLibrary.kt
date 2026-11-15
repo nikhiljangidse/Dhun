@@ -54,8 +54,9 @@ object MusicLibrary {
             MediaStore.Audio.Media.TRACK,
             MediaStore.Audio.Media.DATE_ADDED,
             MediaStore.Audio.Media.DISPLAY_NAME,
+            MediaStore.Audio.Media.SIZE,
             pathColumn,
-        )
+        ) + (if (Build.VERSION.SDK_INT >= 30) arrayOf("bitrate") else emptyArray())
         val selection = "${MediaStore.Audio.Media.DURATION} >= 30000" +
             " AND ${MediaStore.Audio.Media.IS_RINGTONE} = 0" +
             " AND ${MediaStore.Audio.Media.IS_NOTIFICATION} = 0" +
@@ -73,6 +74,8 @@ object MusicLibrary {
             val iDate = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_ADDED)
             val iName = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
             val iPath = c.getColumnIndexOrThrow(pathColumn)
+            val iSize = c.getColumnIndexOrThrow(MediaStore.Audio.Media.SIZE)
+            val iBitrate = if (Build.VERSION.SDK_INT >= 30) c.getColumnIndex("bitrate") else -1
             while (c.moveToNext()) {
                 val id = c.getLong(iId)
                 val fileName = c.getString(iName) ?: "Unknown"
@@ -93,6 +96,9 @@ object MusicLibrary {
                     dateAdded = c.getLong(iDate),
                     folderPath = folderPath,
                     folderName = folderName,
+                    fileName = fileName,
+                    sizeBytes = c.getLong(iSize),
+                    bitrate = if (iBitrate >= 0 && !c.isNull(iBitrate)) c.getInt(iBitrate) else 0,
                 )
             }
         }

@@ -212,6 +212,15 @@ object PlayerConnection {
         }
     }
 
+    /** Drop deleted songs from the queue. */
+    fun removeIds(ids: Set<Long>) {
+        val c = controller ?: return
+        for (i in c.mediaItemCount - 1 downTo 0) {
+            val id = c.getMediaItemAt(i).mediaId.toLongOrNull()
+            if (id != null && id in ids) c.removeMediaItem(i)
+        }
+    }
+
     /** After a fresh app start, load the last queue (paused) so the user can continue. */
     fun restoreIfIdle(context: Context) {
         if (restoreAttempted) return

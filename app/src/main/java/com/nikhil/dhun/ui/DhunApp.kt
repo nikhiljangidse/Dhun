@@ -63,6 +63,7 @@ private sealed interface Route {
     data object Search : Route
     data class Collection(val source: Source) : Route
     data class PickSongs(val playlistId: Long) : Route
+    data object Duplicates : Route
 }
 
 @Composable
@@ -188,6 +189,8 @@ fun DhunApp() {
                         )
                     }
                 }
+
+                Route.Duplicates -> DuplicatesScreen(songs = songs, onBack = { popRoute() })
 
                 is Route.PickSongs -> {
                     val pl = playlists.firstOrNull { it.id == route.playlistId }
@@ -347,6 +350,7 @@ fun DhunApp() {
                     toast(context, "Found ${songCount(MusicLibrary.songs.value.size)}")
                 }
             },
+            onFindDuplicates = { stack.add(Route.Duplicates) },
             onResetHistory = {
                 HistoryStore.clearAll(context)
                 toast(context, "Shuffle history cleared")

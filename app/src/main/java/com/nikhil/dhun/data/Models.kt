@@ -17,6 +17,9 @@ data class Song(
     val dateAdded: Long,
     val folderPath: String,
     val folderName: String,
+    val fileName: String = "",
+    val sizeBytes: Long = 0L,
+    val bitrate: Int = 0,
 ) {
     val uri: Uri get() = songUri(id)
     val artUri: Uri get() = ContentUris.withAppendedId(ALBUM_ART_BASE, albumId)

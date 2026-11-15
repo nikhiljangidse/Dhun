@@ -66,6 +66,15 @@ object PlaylistStore {
         save(_playlists.value.map { if (it.id == id) it.copy(songIds = it.songIds - songId) else it })
     }
 
+    /** After deleting duplicate files: swap each removed id for the copy that was kept. */
+    @Synchronized
+    fun remapSongs(context: Context, removed: Set<Long>, keptFor: Map<Long, Long>) {
+        init(context)
+        save(_playlists.value.map { pl ->
+            pl.copy(songIds = pl.songIds.mapNotNull { if (it in removed) keptFor[it] else it }.distinct())
+        })
+    }
+
     private fun save(list: List<Playlist>) {
         _playlists.value = list
         val arr = JSONArray()

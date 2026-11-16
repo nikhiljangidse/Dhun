@@ -14,8 +14,8 @@ android {
         applicationId = "com.nikhil.dhun"
         minSdk = 26
         targetSdk = 35
-        versionCode = 7
-        versionName = "1.6"
+        versionCode = 8
+        versionName = "1.7"
     }
 
     // Fixed key (committed) so every new build installs over the previous one.

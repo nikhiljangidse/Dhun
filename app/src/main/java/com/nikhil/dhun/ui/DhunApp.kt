@@ -219,9 +219,11 @@ fun DhunApp() {
             }
         }
 
+        // Screens with their own bottom button (delete / add) hide the mini player.
+        val ownBottomBar = stack.last() is Route.Duplicates || stack.last() is Route.PickSongs
         if (current != null) {
             AnimatedVisibility(
-                visible = !showPlayer,
+                visible = !showPlayer && !ownBottomBar,
                 enter = fadeIn(),
                 exit = fadeOut(),
                 modifier = Modifier.align(Alignment.BottomCenter),

@@ -25,10 +25,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.DeleteSweep
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -54,7 +57,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -66,7 +72,9 @@ import com.nikhil.dhun.data.DuplicateGroup
 import com.nikhil.dhun.data.Duplicates
 import com.nikhil.dhun.data.HistoryStore
 import com.nikhil.dhun.data.MusicLibrary
+import com.nikhil.dhun.data.PlaybackPrefs
 import com.nikhil.dhun.data.PlaylistStore
+import com.nikhil.dhun.data.Source
 import com.nikhil.dhun.data.Song
 import com.nikhil.dhun.data.formatBytes
 import com.nikhil.dhun.playback.PlayerConnection
@@ -306,6 +314,20 @@ fun DuplicatesScreen(songs: List<Song>, onBack: () -> Unit) {
                     group = g,
                     isSelected = { it in selectedSet },
                     onToggle = { id -> if (id in selectedSet) selected.remove(id) else selected.add(id) },
+                    playingId = if (PlayerConnection.isPlaying) PlayerConnection.currentId else null,
+                    onPreview = { s ->
+                        if (PlayerConnection.currentId == s.id) {
+                            PlayerConnection.playPause()
+                        } else {
+                            PlayerConnection.play(
+                                context,
+                                Source("preview:duplicates", "DUPLICATE CHECK", s.title),
+                                listOf(s),
+                                s,
+                                PlaybackPrefs.shuffle,
+                            )
+                        }
+                    },
                 )
             }
         }
@@ -365,7 +387,13 @@ fun DuplicatesScreen(songs: List<Song>, onBack: () -> Unit) {
 }
 
 @Composable
-private fun GroupCard(group: DuplicateGroup, isSelected: (Long) -> Boolean, onToggle: (Long) -> Unit) {
+private fun GroupCard(
+    group: DuplicateGroup,
+    isSelected: (Long) -> Boolean,
+    onToggle: (Long) -> Unit,
+    playingId: Long?,
+    onPreview: (Song) -> Unit,
+) {
     val keeper = group.keeper
     val allTicked = group.copies.all { isSelected(it.id) }
     Column(
@@ -430,21 +458,39 @@ private fun GroupCard(group: DuplicateGroup, isSelected: (Long) -> Boolean, onTo
                     val quality = buildList {
                         add(formatBytes(s.sizeBytes))
                         if (s.bitrate > 0) add("${s.bitrate / 1000} kbps")
+                        add(formatDuration(s.durationMs))
                         add(s.folderName)
                     }.joinToString(" · ")
-                    Text(quality, color = DhunColors.Muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                if (index == 0) {
                     Text(
-                        "Best",
-                        color = DhunColors.OnAccent,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier
-                            .padding(start = 8.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(DhunColors.Accent)
-                            .padding(horizontal = 8.dp, vertical = 3.dp),
+                        buildAnnotatedString {
+                            if (index == 0) {
+                                withStyle(SpanStyle(color = DhunColors.Accent, fontWeight = FontWeight.ExtraBold)) { append("BEST · ") }
+                            } else if (ticked) {
+                                withStyle(SpanStyle(color = DhunColors.Accent, fontWeight = FontWeight.Bold)) { append("DELETE · ") }
+                            }
+                            append(quality)
+                        },
+                        color = DhunColors.Muted,
+                        fontSize = 12.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                val isThisPlaying = playingId == s.id
+                Box(
+                    modifier = Modifier
+                        .padding(start = 8.dp)
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(if (isThisPlaying) DhunColors.Accent else DhunColors.Surface2)
+                        .clickable(onClickLabel = if (isThisPlaying) "Pause" else "Play this copy") { onPreview(s) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        if (isThisPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                        contentDescription = if (isThisPlaying) "Pause" else "Play this copy",
+                        tint = if (isThisPlaying) DhunColors.OnAccent else DhunColors.Text,
+                        modifier = Modifier.size(24.dp),
                     )
                 }
             }

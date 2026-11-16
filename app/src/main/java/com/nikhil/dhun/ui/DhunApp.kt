@@ -88,6 +88,12 @@ fun DhunApp() {
     var renameTarget by remember { mutableStateOf<Playlist?>(null) }
     var deleteTarget by remember { mutableStateOf<Playlist?>(null) }
 
+    var crashReport by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        crashReport = com.nikhil.dhun.data.CrashLog.read(context)
+        com.nikhil.dhun.data.CrashLog.clear(context)
+    }
+
     LaunchedEffect(PlayerConnection.connected, loaded) {
         if (PlayerConnection.connected && loaded) PlayerConnection.restoreIfIdle(context)
     }
@@ -339,6 +345,10 @@ fun DhunApp() {
                 deleteTarget = null
             },
         )
+    }
+
+    crashReport?.let { report ->
+        CrashDialog(report = report, onDismiss = { crashReport = null })
     }
 
     if (showSettings) {

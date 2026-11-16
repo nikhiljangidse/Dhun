@@ -276,3 +276,40 @@ private fun CrossfadeSetting() {
         )
     }
 }
+
+@Composable
+fun CrashDialog(report: String, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Dhun closed unexpectedly") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "Sorry! Copy this report and send it to get it fixed.",
+                    color = DhunColors.Muted,
+                    fontSize = 14.sp,
+                )
+                Text(
+                    report.lines().take(14).joinToString("\n"),
+                    color = DhunColors.Text,
+                    fontSize = 11.sp,
+                    lineHeight = 14.sp,
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                    modifier = Modifier
+                        .heightIn(max = 260.dp)
+                        .verticalScroll(rememberScrollState()),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("Dhun crash report", report))
+                toast(context, "Report copied")
+                onDismiss()
+            }) { Text("Copy report", color = DhunColors.Accent, fontWeight = FontWeight.Bold) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Close", color = DhunColors.Muted) } },
+    )
+}

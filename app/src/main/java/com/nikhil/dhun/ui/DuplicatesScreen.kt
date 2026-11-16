@@ -84,7 +84,14 @@ fun DuplicatesScreen(songs: List<Song>, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     var bySound by rememberSaveable { mutableStateOf(false) }
     val scan by SoundScanner.state.collectAsState()
-    val nameGroups = remember(songs) { Duplicates.find(songs) }
+    val nameGroups = remember(songs) {
+        try {
+            Duplicates.find(songs)
+        } catch (e: Throwable) {
+            toast(context, "Could not check names: ${e.javaClass.simpleName}")
+            emptyList()
+        }
+    }
     val soundGroups = remember(scan, songs) {
         val done = scan as? ScanState.Done
         if (done == null) {

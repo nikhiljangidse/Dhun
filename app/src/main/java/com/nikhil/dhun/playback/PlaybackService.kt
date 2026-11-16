@@ -4,7 +4,6 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.os.Handler
 import android.os.Looper
-import android.os.SystemClock
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -13,6 +12,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.Timeline
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.google.common.util.concurrent.Futures
@@ -21,9 +21,6 @@ import com.nikhil.dhun.MainActivity
 import com.nikhil.dhun.data.HistoryStore
 import com.nikhil.dhun.data.PlaybackPrefs
 import com.nikhil.dhun.data.Song
-import kotlin.math.PI
-import kotlin.math.cos
-import kotlin.math.sin
 
 /**
  * Plays music in the background as a foreground service with a media notification,
@@ -37,47 +34,29 @@ class PlaybackService : MediaSessionService() {
     private var markedId: String? = null
     private var tickCount = 0
 
-    // ---- Crossfade state ----
-    /** Second, silent-to-the-system player that plays the old song's ending while it fades out. */
-    private var fader: ExoPlayer? = null
-    private var fading = false
-    private var fadeStartAt = 0L
-    private var fadeDuration = 0L
-    private var fadedFrom: String? = null
-    private var selfSkip = false
-
     private val musicAttributes = AudioAttributes.Builder()
         .setUsage(C.USAGE_MEDIA)
         .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
         .build()
 
+    private lateinit var crossfader: Crossfader
+
     private val ticker = object : Runnable {
         override fun run() {
-            session?.player?.let { checkCrossfade(it) }
+            crossfader.tick()
             if (tickCount++ % 12 == 0) tick() // heard-tracking + save every ~3 s
             handler.postDelayed(this, 250L)
         }
     }
 
-    private val ramp = object : Runnable {
-        override fun run() {
-            val p = session?.player
-            val f = fader
-            if (p == null || f == null || !fading) return
-            val t = ((SystemClock.elapsedRealtime() - fadeStartAt).toFloat() / fadeDuration).coerceIn(0f, 1f)
-            // Equal-power curves: overall loudness stays even through the blend.
-            p.volume = sin(t * PI / 2).toFloat()
-            f.volume = cos(t * PI / 2).toFloat()
-            if (t >= 1f) endCrossfade() else handler.postDelayed(this, 40L)
-        }
-    }
-
     override fun onCreate() {
         super.onCreate()
+        com.nikhil.dhun.data.CrashLog.install(this)
         HistoryStore.init(this)
         PlaybackPrefs.init(this)
 
         val player = ExoPlayer.Builder(this)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(this, Crossfader.accurateExtractors()))
             .setAudioAttributes(musicAttributes, true) // pause for calls / other apps, resume after
             .setHandleAudioBecomingNoisy(true) // pause when headphones are unplugged
             .setWakeMode(C.WAKE_MODE_LOCAL) // keep CPU awake while playing
@@ -86,20 +65,23 @@ class PlaybackService : MediaSessionService() {
         player.addListener(object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 markedId = null
-                if (selfSkip) {
-                    selfSkip = false
-                } else if (fading) {
-                    endCrossfade() // user skipped during a fade
-                }
                 saveProgress()
             }
 
+            override fun onPositionDiscontinuity(
+                oldPosition: Player.PositionInfo,
+                newPosition: Player.PositionInfo,
+                reason: Int,
+            ) {
+                crossfader.onPositionDiscontinuity(reason)
+            }
+
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
-                if (!playWhenReady && fading) endCrossfade() // paused / headphones out
+                if (!playWhenReady) crossfader.onPausedOrInterrupted() // paused / headphones out
             }
 
             override fun onPlaybackSuppressionReasonChanged(playbackSuppressionReason: Int) {
-                if (playbackSuppressionReason != Player.PLAYBACK_SUPPRESSION_REASON_NONE && fading) endCrossfade()
+                if (playbackSuppressionReason != Player.PLAYBACK_SUPPRESSION_REASON_NONE) crossfader.onPausedOrInterrupted()
             }
 
             override fun onTimelineChanged(timeline: Timeline, reason: Int) {
@@ -117,6 +99,7 @@ class PlaybackService : MediaSessionService() {
             Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
+        crossfader = Crossfader(this, handler, musicAttributes) { session?.player }
         session = MediaSession.Builder(this, player)
             .setSessionActivity(open)
             .setCallback(SessionCallback())
@@ -136,9 +119,7 @@ class PlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         handler.removeCallbacks(ticker)
-        endCrossfade()
-        fader?.release()
-        fader = null
+        crossfader.release()
         saveQueue()
         saveProgress()
         session?.run {
@@ -147,53 +128,6 @@ class PlaybackService : MediaSessionService() {
         }
         session = null
         super.onDestroy()
-    }
-
-    /** Starts a crossfade when the current song is within the crossfade window of its end. */
-    private fun checkCrossfade(p: Player) {
-        val cf = PlaybackPrefs.crossfadeSec * 1000L
-        if (cf <= 0L || fading || !p.isPlaying) return
-        if (p.repeatMode == Player.REPEAT_MODE_ONE || !p.hasNextMediaItem()) return
-        val duration = p.duration
-        if (duration == C.TIME_UNSET || duration < cf * 2 + 5_000L) return
-        val remaining = duration - p.currentPosition
-        if (remaining > cf || remaining < 600L) return
-        val item = p.currentMediaItem ?: return
-        val tag = "${p.currentMediaItemIndex}:${item.mediaId}"
-        if (tag == fadedFrom) return
-        fadedFrom = tag
-        startCrossfade(p, item, remaining)
-    }
-
-    private fun startCrossfade(p: Player, item: MediaItem, remaining: Long) {
-        if (item.localConfiguration == null) return
-        val f = fader ?: ExoPlayer.Builder(this)
-            .setAudioAttributes(musicAttributes, false) // must NOT take audio focus from the main player
-            .setWakeMode(C.WAKE_MODE_LOCAL)
-            .build()
-            .also { fader = it }
-        f.volume = 1f
-        f.setMediaItem(item, p.currentPosition + 120L)
-        f.prepare()
-        f.play()
-
-        fading = true
-        fadeDuration = remaining.coerceAtLeast(1_000L)
-        fadeStartAt = SystemClock.elapsedRealtime()
-        p.volume = 0f
-        selfSkip = true
-        p.seekToNextMediaItem()
-        handler.post(ramp)
-    }
-
-    private fun endCrossfade() {
-        handler.removeCallbacks(ramp)
-        fader?.let {
-            it.stop()
-            it.clearMediaItems()
-        }
-        session?.player?.volume = 1f
-        fading = false
     }
 
     private fun tick() {

@@ -12,8 +12,8 @@ data class DuplicateGroup(val copies: List<Song>, val matchPercent: Int? = null)
  *  2. Renamed copies: exactly the same file size and length.
  */
 object Duplicates {
-    private val brackets = Regex("""\(.*?\)|\[.*?]|\{.*?}""")
-    private val leadingNumber = Regex("""^\d{1,3}[\s._-]+""")
+    private val brackets = Regex("""\(.*?\)|\[.*?\]|\{.*?\}""")
+    private val leadingNumber = Regex("""^\d{1,3}[\s._\-]+""")
     private val nonWord = Regex("""[^\p{L}\p{N}]+""")
     private val noise = Regex("""\b(official|video|audio|lyrics|lyric|lyrical|full song|hd|hq|4k|\d{2,3} ?kbps|kbps|mp3|m4a|copy)\b""")
     private val trailingCopyNumber = Regex("""\s\d$""")

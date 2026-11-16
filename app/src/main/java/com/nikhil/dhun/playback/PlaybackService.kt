@@ -55,15 +55,35 @@ class PlaybackService : MediaSessionService() {
         HistoryStore.init(this)
         PlaybackPrefs.init(this)
 
-        val player = ExoPlayer.Builder(this)
+        val player = buildPlayer(handleFocus = true)
+
+        val open = PendingIntent.getActivity(
+            this,
+            0,
+            Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        crossfader = Crossfader(handler, musicAttributes, { session }) { buildPlayer(handleFocus = false) }
+        session = MediaSession.Builder(this, player)
+            .setSessionActivity(open)
+            .setCallback(SessionCallback())
+            .build()
+        handler.post(ticker)
+    }
+
+    /** Both crossfade "decks" are built the same way and report to the same listener. */
+    private fun buildPlayer(handleFocus: Boolean): ExoPlayer {
+        val p = ExoPlayer.Builder(this)
             .setMediaSourceFactory(DefaultMediaSourceFactory(this, Crossfader.accurateExtractors()))
-            .setAudioAttributes(musicAttributes, true) // pause for calls / other apps, resume after
+            .setAudioAttributes(musicAttributes, handleFocus) // pause for calls / other apps, resume after
             .setHandleAudioBecomingNoisy(true) // pause when headphones are unplugged
             .setWakeMode(C.WAKE_MODE_LOCAL) // keep CPU awake while playing
             .build()
+        p.addListener(object : Player.Listener {
+            fun isCurrent() = session?.player === p
 
-        player.addListener(object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                if (!isCurrent()) return
                 markedId = null
                 saveProgress()
             }
@@ -73,38 +93,30 @@ class PlaybackService : MediaSessionService() {
                 newPosition: Player.PositionInfo,
                 reason: Int,
             ) {
-                crossfader.onPositionDiscontinuity(reason)
+                if (isCurrent()) crossfader.onDiscontinuity(reason)
             }
 
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
-                if (!playWhenReady) crossfader.onPausedOrInterrupted() // paused / headphones out
+                if (isCurrent() && !playWhenReady) crossfader.onPausedOrInterrupted()
             }
 
             override fun onPlaybackSuppressionReasonChanged(playbackSuppressionReason: Int) {
-                if (playbackSuppressionReason != Player.PLAYBACK_SUPPRESSION_REASON_NONE) crossfader.onPausedOrInterrupted()
+                if (isCurrent() && playbackSuppressionReason != Player.PLAYBACK_SUPPRESSION_REASON_NONE) {
+                    crossfader.onPausedOrInterrupted()
+                }
             }
 
             override fun onTimelineChanged(timeline: Timeline, reason: Int) {
+                if (!isCurrent()) return
                 saveQueue()
+                if (reason == Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED) crossfader.onQueueChanged()
             }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
-                if (!isPlaying) saveProgress()
+                if (isCurrent() && !isPlaying) saveProgress()
             }
         })
-
-        val open = PendingIntent.getActivity(
-            this,
-            0,
-            Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-        )
-        crossfader = Crossfader(this, handler, musicAttributes) { session?.player }
-        session = MediaSession.Builder(this, player)
-            .setSessionActivity(open)
-            .setCallback(SessionCallback())
-            .build()
-        handler.post(ticker)
+        return p
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
